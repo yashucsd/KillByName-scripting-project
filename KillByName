@@ -1,0 +1,100 @@
+#!/bin/bash
+#filename:      KillByName
+#description:   Kills processes gracefully and/or by name with use of option flags
+#author:        Yash Nevatia
+#date:          11/19/2016
+#===============================================================================
+
+# usage message
+USAGE='Usage: KillByName [-g] -n <name> or KillByName [-g] <pid>'
+# options values
+n=""; g=""
+# process value
+process=""
+# a user variable
+me=`eval whoami`
+
+#function:      usage
+#description:   1. parse command line arguments
+#               2. for illegal usages, print usage message and exit 1
+#               3. otherwise, communicate to main() what flags are set
+function usage {
+    #loops through option flags and associated arguments
+    while getopts :gn: o; do
+        case $o in
+            g)
+                g="g"
+                ;;
+            n)
+                n="n"
+                process=${OPTARG}
+                ;;
+            :)  # entertains case of no process spec
+                error
+                ;;
+            *)  # entertains case of incorrect option flags
+                error
+                ;;
+        esac
+    done
+    shift $((OPTIND-1)) # resets 'getopts' index
+
+    if [ -z ${n} ]; then
+	    process=${1} # handles PID case
+    else # handles name case
+        process=$( ps -C ${process} -o user,pid,cmd | grep ${me} | awk '{print $2}' )
+    fi
+
+    eval ps -p ${process} -o user,pid | grep ${me} &>'/dev/null'
+    if [ ${?} -eq 1 ]; then # checks process exists
+        exit 1
+    fi
+}
+
+#function:      error
+#description:   Generic error funciton to exit 1 and print usage
+function error {
+    echo $USAGE
+    exit 1
+}
+
+#function:      main
+#description:   For Part 1:
+#               1. use usage() to parse command line arguments
+#               2. echo corresponding messages for each flag that is set
+#
+#               For Part 2:
+#               Kill processes based on the case return by `usage`
+function main {
+
+    usage $@ #passes input args to usage function
+
+    # arranges children of process into array cdrn
+    IFS=$'\n' cdrn=($( ps --ppid ${process} -o pid= ))
+
+    for c in "${cdrn[@]}" # loops through children
+    do
+        # keeps from deleting this (KillByName) process
+        if [ ! $$ -eq ${c} ]; then
+            kill -15 ${c} # send SIGTERM to child
+            sleep 5 #lets SIGTERM try to kill
+
+            eval kill -0 ${c} &>'/dev/null' # checks child is dead
+            # if child is alive and there's no grace, runs SIGKILL
+            if [[ $? -eq 0 && -z ${g} ]]; then
+                kill -9 ${c}
+            fi
+        fi
+    done
+
+    kill -15 ${process} # send SIGTERM to parent
+    sleep 5 #lets SIGTERM try to kill
+
+    eval kill -0 ${process} &>'/dev/null' # checks parent is dead
+    # if parent is alive and there's no grace, runs SIGKILL
+    if [[ $? -eq 0 && -z ${g} ]]; then
+        kill -9 ${process}
+    fi
+}
+
+main $@ #passes input args to main function
